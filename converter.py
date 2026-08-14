@@ -123,6 +123,7 @@ def convert_file(input_file, output_folder, csv_options=None):
             "has_header": csv_options.get("has_header", True),
             "null_values": csv_options.get("null_values", ["NULL", "NA", "N/A"]),
             "ignore_errors": csv_options.get("ignore_errors", False),
+            "truncate_ragged_lines": csv_options.get("truncate_ragged_lines", False),
             "skip_rows": csv_options.get("skip_rows", 0),
         }
         quote_char = csv_options.get("quote_char", '"')

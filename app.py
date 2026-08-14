@@ -56,6 +56,7 @@ if uploaded:
             quote_char = st.text_input("Quote Character", value='"', max_chars=1)
             null_values_input = st.text_input("Null Values", value="NULL,NA,N/A")
             ignore_errors = st.checkbox("Ignore Errors", value=False)
+            truncate_ragged_lines = st.checkbox("Truncate Ragged Lines", value=False, help="Automatically truncate rows with extra columns and pad rows with missing columns")
             skip_rows = st.number_input("Skip Rows", min_value=0, value=0, step=1)
     else:
         delimiter_choice = "Auto"
@@ -64,6 +65,7 @@ if uploaded:
         quote_char = '"'
         null_values_input = "NULL,NA,N/A"
         ignore_errors = False
+        truncate_ragged_lines = False
         skip_rows = 0
 
     st.write(f"Files Selected : {len(uploaded)}")
@@ -126,6 +128,7 @@ if uploaded:
                 "quote_char": quote_char,
                 "null_values": [v.strip() for v in null_values_input.split(",") if v.strip()],
                 "ignore_errors": ignore_errors,
+                "truncate_ragged_lines": truncate_ragged_lines,
                 "skip_rows": int(skip_rows),
             }
 
