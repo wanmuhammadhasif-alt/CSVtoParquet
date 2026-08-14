@@ -8,12 +8,29 @@ from statistics import ConversionStat
 
 
 def detect_encoding(file_path):
-    """Detect file encoding using chardet"""
+    """Detect file encoding using chardet, with extra emphasis on header row"""
     try:
         with open(file_path, 'rb') as f:
-            raw_data = f.read(100000)  # Read first 100KB for detection
-            result = chardet.detect(raw_data)
+            # Read larger sample for more accurate detection
+            raw_data = f.read(500000)  # Read first 500KB for detection
+            
+            # Also check just the first line (header)
+            f.seek(0)
+            first_line = f.readline()
+            
+            # Try detection on first line + rest
+            combined_data = first_line + raw_data
+            result = chardet.detect(combined_data)
             encoding = result.get('encoding', 'utf8')
+            confidence = result.get('confidence', 0)
+            
+            # If confidence is low, try alternative detections
+            if confidence < 0.7:
+                # Try with just first line
+                result_header = chardet.detect(first_line)
+                if result_header.get('confidence', 0) > confidence:
+                    encoding = result_header.get('encoding', encoding)
+            
             return encoding if encoding else 'utf8'
     except Exception:
         return 'utf8'
@@ -49,9 +66,13 @@ def convert_file(input_file, output_folder, csv_options=None):
             if encoding == "utf-8-sig":
                 encoding = "utf8-sig"
         
-        # Auto-detect encoding if set to utf8 and file has issues
+        # Auto-detect encoding and use it if user selected default utf8
         detected_encoding = detect_encoding(input_file)
         original_encoding = encoding
+        
+        # If user chose default utf8 but we detected something else, try detected first
+        if encoding == "utf8" and detected_encoding.lower() != "utf8" and detected_encoding:
+            encoding = detected_encoding
 
         scan_args = {
             "encoding": encoding,
@@ -83,9 +104,20 @@ def convert_file(input_file, output_folder, csv_options=None):
 
             if _is_encoding_error(error_message):
                 # Try detected encoding first, then other fallbacks
-                fallback_encodings = [detected_encoding, "utf8-sig", "latin1", "cp1252", "iso-8859-1", "windows-1252", "utf16"]
-                # Remove duplicates while preserving order
-                fallback_encodings = list(dict.fromkeys(fallback_encodings))
+                # Include encodings commonly used in Southeast Asia (Vietnamese, etc)
+                fallback_encodings = [
+                    detected_encoding,
+                    "utf8-sig",
+                    "latin1",
+                    "cp1252",
+                    "iso-8859-1",
+                    "windows-1252",
+                    "cp1258",  # Vietnamese Windows encoding
+                    "utf16",
+                    "utf-16",
+                ]
+                # Remove duplicates and None/empty values while preserving order
+                fallback_encodings = list(dict.fromkeys([e for e in fallback_encodings if e]))
                 
                 for fallback_encoding in fallback_encodings:
                     scan_args["encoding"] = fallback_encoding
