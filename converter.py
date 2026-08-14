@@ -2,8 +2,21 @@ from pathlib import Path
 import os
 import time
 import polars as pl
+import chardet
 
 from statistics import ConversionStat
+
+
+def detect_encoding(file_path):
+    """Detect file encoding using chardet"""
+    try:
+        with open(file_path, 'rb') as f:
+            raw_data = f.read(100000)  # Read first 100KB for detection
+            result = chardet.detect(raw_data)
+            encoding = result.get('encoding', 'utf8')
+            return encoding if encoding else 'utf8'
+    except Exception:
+        return 'utf8'
 
 
 def convert_file(input_file, output_folder, csv_options=None):
@@ -35,6 +48,10 @@ def convert_file(input_file, output_folder, csv_options=None):
                 encoding = "utf8"
             if encoding == "utf-8-sig":
                 encoding = "utf8-sig"
+        
+        # Auto-detect encoding if set to utf8 and file has issues
+        detected_encoding = detect_encoding(input_file)
+        original_encoding = encoding
 
         scan_args = {
             "encoding": encoding,
@@ -65,7 +82,12 @@ def convert_file(input_file, output_folder, csv_options=None):
             df_lazy = None
 
             if _is_encoding_error(error_message):
-                for fallback_encoding in ["utf8-sig", "latin1", "cp1252"]:
+                # Try detected encoding first, then other fallbacks
+                fallback_encodings = [detected_encoding, "utf8-sig", "latin1", "cp1252", "iso-8859-1", "windows-1252", "utf16"]
+                # Remove duplicates while preserving order
+                fallback_encodings = list(dict.fromkeys(fallback_encodings))
+                
+                for fallback_encoding in fallback_encodings:
                     scan_args["encoding"] = fallback_encoding
                     try:
                         df_lazy = _scan_csv_with_args(scan_args)
@@ -93,7 +115,7 @@ def convert_file(input_file, output_folder, csv_options=None):
         try:
             cnt_df = df_lazy.select(pl.count()).collect()
             rows = cnt_df.row(0)[0] if cnt_df.height > 0 else 0
-            columns = len(df_lazy.columns)
+            columns = len(df_lazy.collect_schema().names())
         except Exception:
             # fallback to collecting (may use more memory)
             eager = df_lazy.collect()
@@ -115,7 +137,7 @@ def convert_file(input_file, output_folder, csv_options=None):
         try:
             cnt_df = df_lazy.select(pl.count()).collect()
             rows = cnt_df.row(0)[0] if cnt_df.height > 0 else 0
-            columns = len(df_lazy.columns)
+            columns = len(df_lazy.collect_schema().names())
         except Exception:
             eager = df_lazy.collect()
             rows = eager.height
