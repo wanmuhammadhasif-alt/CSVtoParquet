@@ -270,16 +270,38 @@ if uploaded:
             "skip_rows": int(skip_rows),
         })
 
-        if preview_frames:
-            st.markdown("### CSV Previews")
-            for preview in preview_frames:
-                preview_path = preview["path"] if "path" in preview else None
-                detected_encoding = "Auto"
-                if preview_path is not None:
-                    detected_encoding = detect_encoding(preview_path) or "utf8"
-                label = f"{preview['filename']} • {detected_encoding}"
-                with st.expander(label, expanded=False):
-                    st.dataframe(preview["data"].head(10), width="stretch")
+        if converted_files:
+            csv_output_previews = []
+            parquet_output_previews = []
+            for output_file in converted_files:
+                if output_file.suffix.lower() == ".csv":
+                    try:
+                        csv_output_previews.append({
+                            "filename": output_file.name,
+                            "data": pl.read_csv(output_file)
+                        })
+                    except Exception:
+                        pass
+                elif output_file.suffix.lower() == ".parquet":
+                    try:
+                        parquet_output_previews.append({
+                            "filename": output_file.name,
+                            "data": pl.read_parquet(output_file)
+                        })
+                    except Exception:
+                        pass
+
+            if csv_output_previews:
+                st.markdown("### Output CSV Preview")
+                for preview in csv_output_previews:
+                    with st.expander(f"{preview['filename']}", expanded=False):
+                        st.dataframe(preview["data"].head(10), width="stretch")
+
+            if parquet_output_previews:
+                st.markdown("### Output Parquet Preview")
+                for preview in parquet_output_previews:
+                    with st.expander(f"{preview['filename']}", expanded=False):
+                        st.dataframe(preview["data"].head(10), width="stretch")
 
         st.metric(
             "Total Conversion Time",
