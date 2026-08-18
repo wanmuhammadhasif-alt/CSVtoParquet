@@ -7,7 +7,7 @@ import polars as pl
 import streamlit as st
 import shutil
 
-from converter import convert_file
+from converter import convert_file, detect_encoding
 from utils import format_size
 from pathlib import Path
 import uuid
@@ -49,14 +49,14 @@ if uploaded:
             )
             encoding = st.selectbox(
                 "Encoding",
-                ["utf8", "utf-8", "utf-8-sig", "latin-1", "utf16", "cp1252"],
+                ["Auto", "utf8", "utf-8", "utf-8-sig", "latin-1", "utf16", "cp1252"],
                 index=0
             )
             has_header = st.checkbox("Has Header", value=True)
             quote_char = st.text_input("Quote Character", value='"', max_chars=1)
             null_values_input = st.text_input("Null Values", value="NULL,NA,N/A")
             ignore_errors = st.checkbox("Ignore Errors", value=False)
-            truncate_ragged_lines = st.checkbox("Truncate Ragged Lines", value=False, help="Automatically truncate rows with extra columns and pad rows with missing columns")
+            truncate_ragged_lines = st.checkbox("Truncate Ragged Lines", value=True, help="Automatically truncate rows with extra columns and pad rows with missing columns")
             skip_rows = st.number_input("Skip Rows", min_value=0, value=0, step=1)
     else:
         delimiter_choice = "Auto"
@@ -71,6 +71,42 @@ if uploaded:
     st.write(f"Files Selected : {len(uploaded)}")
 
     print(uploaded)
+
+    def build_preview_df(csv_path, selected_delimiter, selected_encoding, has_header_value, quote_char_value, null_values_input_value, ignore_errors_value, skip_rows_value):
+        encoding_name = selected_encoding.strip().lower() if isinstance(selected_encoding, str) else selected_encoding
+        if str(encoding_name).lower() == "auto":
+            encoding_name = detect_encoding(csv_path) or "utf8"
+        if encoding_name == "utf-8":
+            encoding_name = "utf8"
+        elif encoding_name == "utf-8-sig":
+            encoding_name = "utf8-sig"
+
+        read_kwargs = {
+            "encoding": encoding_name,
+            "has_header": has_header_value,
+            "quote_char": quote_char_value,
+            "null_values": [v.strip() for v in null_values_input_value.split(",") if v.strip()],
+            "ignore_errors": ignore_errors_value,
+            "skip_rows": int(skip_rows_value),
+        }
+        if selected_delimiter != "Auto":
+            read_kwargs["separator"] = "\t" if selected_delimiter == "Tab" else selected_delimiter
+
+        try:
+            return pl.read_csv(csv_path, **read_kwargs)
+        except Exception:
+            fallback_encodings = ["utf8-sig", "latin1", "cp1252"]
+            for fallback_encoding in fallback_encodings:
+                if fallback_encoding == encoding_name:
+                    continue
+                read_kwargs["encoding"] = fallback_encoding
+                try:
+                    return pl.read_csv(csv_path, **read_kwargs)
+                except Exception:
+                    continue
+
+            read_kwargs["truncate_ragged_lines"] = True
+            return pl.read_csv(csv_path, **read_kwargs)
 
     if st.button("Convert"):
 
@@ -106,7 +142,7 @@ if uploaded:
         overall_start = time.time()
 
         converted_files = []
-        preview_file = None
+        preview_frames = []
 
         for i,file in enumerate(uploaded):
 
@@ -118,12 +154,27 @@ if uploaded:
 
             temp.write_bytes(file.getbuffer())
 
-            if preview_file is None and file.name.lower().endswith('.csv'):
-                preview_file = temp
+            if file.name.lower().endswith('.csv'):
+                csv_preview = build_preview_df(
+                    temp,
+                    delimiter_choice,
+                    encoding,
+                    has_header,
+                    quote_char,
+                    null_values_input,
+                    ignore_errors,
+                    skip_rows,
+                )
+                preview_frames.append({"filename": file.name, "path": temp, "data": csv_preview})
+
+            selected_encoding = encoding
+            if str(selected_encoding).lower() == "auto":
+                detected_encoding = detect_encoding(temp)
+                selected_encoding = detected_encoding or "utf8"
 
             csv_options = {
                 "delimiter": delimiter_choice,
-                "encoding": encoding,
+                "encoding": selected_encoding,
                 "has_header": has_header,
                 "quote_char": quote_char,
                 "null_values": [v.strip() for v in null_values_input.split(",") if v.strip()],
@@ -219,62 +270,16 @@ if uploaded:
             "skip_rows": int(skip_rows),
         })
 
-        if preview_file is not None:
-            try:
-                encoding_name = encoding.strip().lower() if isinstance(encoding, str) else encoding
-                if encoding_name == "utf-8":
-                    encoding_name = "utf8"
-                elif encoding_name == "utf-8-sig":
-                    encoding_name = "utf8-sig"
-
-                read_kwargs = {
-                    "encoding": encoding_name,
-                    "has_header": has_header,
-                    "quote_char": quote_char,
-                    "null_values": [v.strip() for v in null_values_input.split(",") if v.strip()],
-                    "ignore_errors": ignore_errors,
-                    "skip_rows": int(skip_rows),
-                }
-                if delimiter_choice != "Auto":
-                    read_kwargs["separator"] = "\t" if delimiter_choice == "Tab" else delimiter_choice
-
-                try:
-                    preview_df = pl.read_csv(
-                        preview_file,
-                        **read_kwargs,
-                    )
-                except Exception as preview_error:
-                    fallback_encodings = ["utf8-sig", "latin1", "cp1252"]
-                    for fallback_encoding in fallback_encodings:
-                        if fallback_encoding == encoding_name:
-                            continue
-                        read_kwargs["encoding"] = fallback_encoding
-                        try:
-                            preview_df = pl.read_csv(
-                                preview_file,
-                                **read_kwargs,
-                            )
-                            st.warning(
-                                f"Preview loaded using fallback encoding '{fallback_encoding}' after '{encoding_name}' failed."
-                            )
-                            break
-                        except Exception:
-                            continue
-                    else:
-                        # Retry with ragged line truncation if schema mismatch occurs
-                        read_kwargs["truncate_ragged_lines"] = True
-                        preview_df = pl.read_csv(
-                            preview_file,
-                            **read_kwargs,
-                        )
-                        st.warning(
-                            "Preview loaded with truncate_ragged_lines=True due to ragged CSV rows."
-                        )
-
-                st.markdown("### CSV Preview")
-                st.dataframe(preview_df.head(10), width="stretch")
-            except Exception as preview_error:
-                st.warning(f"Preview could not be loaded: {preview_error}")
+        if preview_frames:
+            st.markdown("### CSV Previews")
+            for preview in preview_frames:
+                preview_path = preview["path"] if "path" in preview else None
+                detected_encoding = "Auto"
+                if preview_path is not None:
+                    detected_encoding = detect_encoding(preview_path) or "utf8"
+                label = f"{preview['filename']} • {detected_encoding}"
+                with st.expander(label, expanded=False):
+                    st.dataframe(preview["data"].head(10), width="stretch")
 
         st.metric(
             "Total Conversion Time",
