@@ -1,12 +1,12 @@
-# CSV ? Parquet Batch Converter
+# CSV ↔ Parquet Batch Converter
 
 A Streamlit-based app for converting CSV and Parquet files in batches with automatic encoding detection, preview support, and ZIP export.
 
 ## Features
 
 - Batch upload and conversion of multiple CSV and Parquet files
-- CSV ? Parquet conversion
-- Parquet ? CSV conversion
+- CSV ↔ Parquet conversion
+- Parquet ↔ CSV conversion
 - Auto encoding detection when the Encoding option is set to Auto
 - Advanced CSV parsing controls:
   - delimiter selection
